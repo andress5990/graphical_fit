@@ -1,0 +1,118 @@
+#!/usr/bin/env python
+"""
+Fit each of the two peaks to a gaussian profile.
+"""
+FILENAME = 'F0001CH2.CSV'
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+from show_scope import TekCSV
+
+csv = TekCSV(FILENAME)
+
+time = csv.data[:, 3]
+volts = csv.data[:, 4]
+
+# Normalizing the data
+# limit the data for single quantum case
+mask1 = (5.19 < time)*(time < 5.61)
+time1 = time[mask1] 
+volts1 = volts[mask1]
+
+# limit the data for double quantum case
+mask2 = (4.89 < time)*(time < 5.20)
+time2 = time[mask2]
+volts2 = volts[mask2]
+
+# subtract the background
+def bg_subtract(x, y):
+    m = (y[-1] - y[0])/(x[-1] - x[0])
+    return y - (m*(x - x[0]) + y[0])
+
+volts1 = bg_subtract(time1, volts1)
+volts2 = bg_subtract(time2, volts2)
+
+# flip over x-axis
+volts1 = -1*volts1
+volts2 = -1*volts2
+
+# Fitting the data
+# Gaussian fitting function
+def gaussian(x, *p):
+    A, sigma, mu = p
+    return A*np.exp(-(x - mu)**2 / (2*sigma**2))
+
+# initial parameter guesses
+# [height, HWHM, shift]
+p1 = np.array([0.28, 2*.09, 5.4], dtype=np.double)   # single quantum
+p2 = np.array([.905, 2*.06, 5.044], dtype=np.double)    # double quantum 
+
+def fit(p, x, y):
+    return curve_fit(gaussian, x, y, p0 = p)
+
+# Get the fitting parameters for the best gaussian.
+solp1, var_matrix1 = fit(p1, time1, volts1)
+solp2, var_matrix2 = fit(p2, time2, volts2)
+
+# error stuff
+# coefficient of determination
+def calc_r2(y, f):
+    avg_y = y.mean()
+    sstot = ((y - avg_y)**2).sum()
+    ssres = ((y - f)**2).sum()
+    return 1 - ssres/sstot
+
+# calculate the errors
+r2_1 = calc_r2(volts1, gaussian(time1, *solp1))
+r2_2 = calc_r2(volts2, gaussian(time2, *solp2))
+
+# plotting
+def set_lim(x, y):
+    plt.xlim([x[0] - (x[-1] - x[0])*.1, x[-1] + (x[-1] - x[0])*.1])
+    plt.ylim([y.min() - (y.max() - y.min())*.1, y.max() + (y.max() - y.min())*.1])
+
+def parse_solp(p):
+    return p[0], p[1], p[2]
+
+# single quantum plot
+plt.subplot(1, 2, 1)
+# plot data
+plt.scatter(time1, volts1, marker='+')
+# plot gaussian fit
+plt.plot(time1, gaussian(time1, *solp1))
+plt.xticks(rotation=17)
+set_lim(time1, volts1)
+
+# annotate
+plt.xlabel(csv.header['Horizontal Units'] + ' (arbitrary)')
+plt.ylabel(csv.header['Vertical Units'] + ' (arbitrary)')
+plt.title('Single Quantum Transition')
+amp, sigma, mu = parse_solp(solp1)
+equation = "$y = %.3g e^{(x-%.3g)/%.3g^2}$" % (amp, sigma, mu)
+plt.annotate(equation, xy=(5.2, 0.28), fontsize=18)
+plt.annotate("$r^2 = %.3g$" % r2_1 , xy=(5.2, 0.26), fontsize=15)
+
+# double quantum plot
+plt.subplot(1, 2, 2)
+# plot data
+plt.scatter(time2, volts2, marker='+')
+# plot gaussian fit 
+plt.plot(time2, gaussian(time2, *solp2))
+plt.xticks(rotation=17)
+set_lim(time2, volts2)
+
+# annotate
+plt.xlabel(csv.header['Horizontal Units'] + ' (arbitrary)')
+plt.title('Double Quantum Transition')
+amp, sigma, mu = parse_solp(solp2)
+equation = "$y = %.3g e^{(x-%.3g)/%.3g^2}$" % (amp, sigma, mu)
+plt.annotate(equation, xy=(4.9, .9), fontsize=18)
+plt.annotate("$r^2 = %.3g$" % r2_2 , xy=(4.9, 0.8), fontsize=15)
+
+plt.suptitle('Gaussian Fits of the Data')
+
+plt.savefig('../gaussian-fit.png')
+plt.savefig('../gaussian-fit.eps')
+plt.show()
